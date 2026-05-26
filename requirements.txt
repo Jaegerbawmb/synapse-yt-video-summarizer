@@ -1,0 +1,31 @@
+# YouTube Video Summarizer – Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# Web framework
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+
+# YouTube audio download
+yt-dlp>=2024.4.9
+
+# Speech-to-text (Whisper)
+openai-whisper>=20231117
+# Note: Whisper also requires ffmpeg installed on the system
+# Ubuntu/Debian: sudo apt install ffmpeg
+# macOS:         brew install ffmpeg
+# Windows:       https://ffmpeg.org/download.html
+
+# YouTube captions fallback
+youtube-transcript-api>=0.6.2
+
+# Extractive summarization (TextRank)
+sumy>=0.11.0
+nltk>=3.8.1
+
+# Abstractive summarization (T5, BART, PEGASUS)
+transformers>=4.40.0
+torch>=2.2.0
+sentencepiece>=0.2.0      # required for T5 tokenizer
+
+# Optional: GPU acceleration (install manually if CUDA is available)
+# torch>=2.2.0+cu121  --index-url https://download.pytorch.org/whl/cu121

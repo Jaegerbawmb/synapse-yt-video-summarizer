@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SYNAPSE — YouTube Summarizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Unbounded:wght@300;400;700;900&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg:       #0a0a0b;
+    --surface:  #111113;
+    --border:   #252528;
+    --muted:    #3a3a40;
+    --text:     #e8e8f0;
+    --sub:      #7a7a8a;
+    --accent:   #00e5ff;
+    --accent2:  #ff4060;
+    --accent3:  #7bff6a;
+    --warn:     #ffcc00;
+    --mono:     'IBM Plex Mono', monospace;
+    --display:  'Unbounded', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(255,255,255,0.012) 2px,
+      rgba(255,255,255,0.012) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* Noise texture */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    opacity: 0.35;
+    pointer-events: none;
+    z-index: 9998;
+  }
+
+  /* ── Layout ── */
+  .shell {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: flex-end;
+    gap: 16px;
+    margin-bottom: 48px;
+    animation: fadeUp .6s ease both;
+  }
+
+  .logo {
+    font-family: var(--display);
+    font-weight: 900;
+    font-size: 2.6rem;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    color: var(--accent);
+    text-shadow: 0 0 40px rgba(0,229,255,0.4);
+  }
+
+  .logo-tag {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--sub);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    padding-bottom: 2px;
+    border-bottom: 1px solid var(--muted);
+  }
+
+  /* ── Input panel ── */
+  .input-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 28px;
+    margin-bottom: 24px;
+    animation: fadeUp .6s .1s ease both;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .input-panel::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), transparent);
+  }
+
+  .panel-label {
+    font-size: 0.65rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 16px;
+  }
+
+  .url-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+
+  .url-input {
+    flex: 1;
+    background: #0d0d0e;
+    border: 1px solid var(--muted);
+    border-radius: 2px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    padding: 12px 16px;
+    outline: none;
+    transition: border-color .2s;
+  }
+  .url-input:focus { border-color: var(--accent); }
+  .url-input::placeholder { color: var(--muted); }
+
+  .btn-run {
+    font-family: var(--display);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: var(--accent);
+    color: #000;
+    border: none;
+    border-radius: 2px;
+    padding: 12px 28px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background .2s, box-shadow .2s, transform .1s;
+  }
+  .btn-run:hover {
+    background: #33eaff;
+    box-shadow: 0 0 24px rgba(0,229,255,0.35);
+  }
+  .btn-run:active { transform: scale(0.97); }
+  .btn-run:disabled {
+    background: var(--muted);
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  /* Options row */
+  .options-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    align-items: flex-end;
+  }
+
+  .opt-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .opt-label {
+    font-size: 0.6rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--sub);
+  }
+
+  .opt-select, .opt-number {
+    background: #0d0d0e;
+    border: 1px solid var(--muted);
+    border-radius: 2px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    padding: 8px 12px;
+    outline: none;
+    cursor: pointer;
+    transition: border-color .2s;
+  }
+  .opt-select:focus, .opt-number:focus { border-color: var(--accent); }
+  .opt-number { width: 80px; }
+
+  .model-toggles {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .toggle-chip {
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 6px 14px;
+    border: 1px solid var(--muted);
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all .2s;
+    user-select: none;
+    color: var(--sub);
+    background: transparent;
+  }
+  .toggle-chip.active {
+    border-color: currentColor;
+    color: var(--bg);
+  }
+  .toggle-chip.textrank.active  { background: var(--accent3);  border-color: var(--accent3);  }
+  .toggle-chip.t5.active        { background: var(--accent);   border-color: var(--accent);   }
+  .toggle-chip.bart.active      { background: var(--warn);     border-color: var(--warn);     }
+  .toggle-chip.pegasus.active   { background: var(--accent2);  border-color: var(--accent2);  }
+  .toggle-chip.textrank  { color: var(--accent3); }
+  .toggle-chip.t5        { color: var(--accent);  }
+  .toggle-chip.bart      { color: var(--warn);    }
+  .toggle-chip.pegasus   { color: var(--accent2); }
+
+  /* ── Status bar ── */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    margin-bottom: 24px;
+    font-size: 0.75rem;
+    color: var(--sub);
+    animation: fadeUp .3s ease both;
+    min-height: 40px;
+  }
+
+  .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .dot.idle    { background: var(--muted); }
+  .dot.running { background: var(--accent); animation: pulse 1s infinite; }
+  .dot.done    { background: var(--accent3); }
+  .dot.error   { background: var(--accent2); }
+
+  @keyframes pulse {
+    0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(0,229,255,0.4); }
+    50%      { opacity: .7; box-shadow: 0 0 0 6px rgba(0,229,255,0); }
+  }
+
+  /* ── Transcript strip ── */
+  .transcript-strip {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent3);
+    border-radius: 2px;
+    padding: 18px 22px;
+    margin-bottom: 24px;
+    animation: fadeUp .4s ease both;
+  }
+
+  .strip-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .badge {
+    font-size: 0.6rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 2px;
+  }
+  .badge.whisper    { background: rgba(123,255,106,0.15); color: var(--accent3); border: 1px solid var(--accent3); }
+  .badge.youtube_api { background: rgba(255,64,96,0.15); color: var(--accent2); border: 1px solid var(--accent2); }
+
+  .transcript-meta {
+    display: flex;
+    gap: 20px;
+    font-size: 0.68rem;
+    color: var(--sub);
+    margin-bottom: 10px;
+  }
+
+  .transcript-snippet {
+    font-size: 0.78rem;
+    color: var(--sub);
+    line-height: 1.6;
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+    font-style: italic;
+    white-space: pre-wrap;
+    overflow: hidden;
+    max-height: 80px;
+    -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent);
+    mask-image: linear-gradient(to bottom, black 60%, transparent);
+  }
+
+  /* ── Results grid ── */
+  .results-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
+    gap: 16px;
+  }
+
+  .result-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 22px;
+    position: relative;
+    overflow: hidden;
+    animation: fadeUp .5s ease both;
+    transition: border-color .2s;
+  }
+  .result-card:hover { border-color: var(--muted); }
+
+  .result-card .stripe {
+    position: absolute;
+    top: 0; left: 0; bottom: 0;
+    width: 3px;
+  }
+  .stripe.textrank { background: var(--accent3); }
+  .stripe.t5       { background: var(--accent);  }
+  .stripe.bart     { background: var(--warn);    }
+  .stripe.pegasus  { background: var(--accent2); }
+
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+
+  .model-name {
+    font-family: var(--display);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .model-name.textrank { color: var(--accent3); }
+  .model-name.t5       { color: var(--accent);  }
+  .model-name.bart     { color: var(--warn);    }
+  .model-name.pegasus  { color: var(--accent2); }
+
+  .type-tag {
+    font-size: 0.55rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--sub);
+    border: 1px solid var(--border);
+    padding: 2px 7px;
+    border-radius: 2px;
+  }
+
+  .elapsed {
+    font-size: 0.65rem;
+    color: var(--muted);
+    margin-left: 10px;
+  }
+
+  .summary-text {
+    font-size: 0.83rem;
+    line-height: 1.72;
+    color: #c8c8d8;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .copy-btn {
+    margin-top: 14px;
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--sub);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .copy-btn:hover { border-color: var(--muted); color: var(--text); }
+  .copy-btn.copied { color: var(--accent3); border-color: var(--accent3); }
+
+  /* ── Error box ── */
+  .error-box {
+    background: rgba(255,64,96,0.07);
+    border: 1px solid var(--accent2);
+    border-radius: 2px;
+    padding: 18px 22px;
+    color: var(--accent2);
+    font-size: 0.82rem;
+    animation: fadeUp .3s ease both;
+    margin-bottom: 20px;
+  }
+  .error-box strong { display: block; margin-bottom: 6px; font-family: var(--display); font-size: 0.75rem; letter-spacing: 0.1em; }
+
+  /* ── Loader ── */
+  .loader-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
+    gap: 16px;
+  }
+
+  .skeleton-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 22px;
+    animation: shimmer 1.4s infinite;
+  }
+
+  @keyframes shimmer {
+    0%,100% { opacity: .5; }
+    50%      { opacity: 1;  }
+  }
+
+  .skel-line {
+    height: 10px;
+    background: var(--border);
+    border-radius: 2px;
+    margin-bottom: 10px;
+  }
+  .skel-line.short { width: 40%; }
+  .skel-line.med   { width: 70%; }
+
+  /* ── Animations ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Total time footer ── */
+  .total-bar {
+    margin-top: 24px;
+    font-size: 0.68rem;
+    color: var(--sub);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+  }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Header -->
+  <header>
+    <div>
+      <div class="logo">SYNAPSE</div>
+    </div>
+    <div class="logo-tag">YouTube Video Summarizer &nbsp;/&nbsp; TextRank · T5 · BART · PEGASUS</div>
+  </header>
+
+  <!-- Input panel -->
+  <div class="input-panel">
+    <div class="panel-label">// Input Configuration</div>
+    <div class="url-row">
+      <input class="url-input" id="urlInput" type="text"
+        placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ" />
+      <button class="btn-run" id="runBtn" onclick="runSummarize()">Analyze →</button>
+    </div>
+
+    <div class="options-row">
+      <div class="opt-group">
+        <span class="opt-label">Models</span>
+        <div class="model-toggles" id="modelToggles">
+          <div class="toggle-chip textrank active" data-model="textrank" onclick="toggleModel(this)">TextRank (Extractive)</div>
+          <div class="toggle-chip t5 active" data-model="t5" onclick="toggleModel(this)">T5-Small</div>
+          <div class="toggle-chip bart active" data-model="bart" onclick="toggleModel(this)">BART-Large-CNN</div>
+          <div class="toggle-chip pegasus active" data-model="pegasus" onclick="toggleModel(this)">PEGASUS-XSum</div>
+        </div>
+
+      <div class="opt-group">
+        <span class="opt-label">Extractive sentences</span>
+        <input class="opt-number" id="numSentences" type="number" min="2" max="15" value="5" />
+      </div>
+
+      <div class="opt-group">
+        <span class="opt-label">Max tokens (abstract)</span>
+        <input class="opt-number" id="maxTokens" type="number" min="50" max="600" value="250" />
+      </div>
+
+      <div class="opt-group">
+        <span class="opt-label">API Base URL</span>
+        <input class="opt-select" id="apiBase" type="text" value="http://localhost:8000" style="width:220px" />
+      </div>
+    </div>
+  </div>
+
+  <!-- Status -->
+  <div class="status-bar" id="statusBar">
+    <div class="dot idle" id="statusDot"></div>
+    <span id="statusText">Ready — paste a YouTube URL and click Analyze</span>
+  </div>
+
+  <!-- Dynamic content -->
+  <div id="dynamicContent"></div>
+
+</div>
+
+<script>
+  const API = () => document.getElementById('apiBase').value.trim().replace(/\/$/, '');
+
+  function toggleModel(el) {
+    el.classList.toggle('active');
+  }
+
+  function getModels() {
+    return [...document.querySelectorAll('.toggle-chip.active')].map(e => e.dataset.model);
+  }
+
+  function setStatus(state, msg) {
+    const dot = document.getElementById('statusDot');
+    const txt = document.getElementById('statusText');
+    dot.className = 'dot ' + state;
+    txt.textContent = msg;
+  }
+
+  function renderSkeleton(count) {
+    const grid = document.createElement('div');
+    grid.className = 'loader-grid';
+    for (let i = 0; i < count; i++) {
+      grid.innerHTML += `
+        <div class="skeleton-card">
+          <div class="skel-line short"></div>
+          <div class="skel-line"></div>
+          <div class="skel-line med"></div>
+          <div class="skel-line"></div>
+          <div class="skel-line med"></div>
+          <div class="skel-line short"></div>
+        </div>`;
+    }
+    return grid;
+  }
+
+  function renderTranscript(t) {
+    const badgeClass = t.source === 'whisper' ? 'whisper' : 'youtube_api';
+    const badgeText  = t.source === 'whisper' ? '🎙 Whisper' : '📺 YouTube API';
+    return `
+      <div class="transcript-strip">
+        <div class="strip-header">
+          <span class="panel-label" style="margin:0">// Transcript</span>
+          <span class="badge ${badgeClass}">${badgeText}</span>
+        </div>
+        <div class="transcript-meta">
+          <span>${t.word_count.toLocaleString()} words</span>
+          <span>${t.char_count.toLocaleString()} chars</span>
+          ${t.language ? `<span>lang: ${t.language}</span>` : ''}
+        </div>
+        <div class="transcript-snippet">${escHtml(t.snippet)}</div>
+      </div>`;
+  }
+
+  function renderCard(r, delay) {
+    const typeMap = { textrank: 'extractive', t5: 'abstractive', bart: 'abstractive', pegasus: 'abstractive' };
+    return `
+      <div class="result-card" style="animation-delay:${delay}ms">
+        <div class="stripe ${r.model}"></div>
+        <div class="card-header">
+          <div>
+            <span class="model-name ${r.model}">${r.model.toUpperCase()}</span>
+            <span class="type-tag">${typeMap[r.model] || ''}</span>
+            <span class="elapsed">${r.elapsed_sec}s</span>
+          </div>
+        </div>
+        <div class="summary-text">${escHtml(r.summary)}</div>
+        <button class="copy-btn" onclick="copyText(this, ${JSON.stringify(r.summary)})">Copy</button>
+      </div>`;
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  async function copyText(btn, text) {
+    await navigator.clipboard.writeText(text).catch(() => {});
+    btn.textContent = 'Copied ✓';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1800);
+  }
+
+  async function runSummarize() {
+    const url = document.getElementById('urlInput').value.trim();
+    if (!url) { alert('Please enter a YouTube URL'); return; }
+
+    const models = getModels();
+    if (!models.length) { alert('Select at least one model'); return; }
+
+    const btn = document.getElementById('runBtn');
+    btn.disabled = true;
+    btn.textContent = 'Processing…';
+
+    const content = document.getElementById('dynamicContent');
+    const skeleton = renderSkeleton(models.length);
+    content.innerHTML = '';
+    content.appendChild(skeleton);
+
+    setStatus('running', 'Downloading audio and transcribing via Whisper…');
+
+    const body = {
+      url,
+      models,
+      extractive_sentences: parseInt(document.getElementById('numSentences').value),
+      abstractive_max_tokens: parseInt(document.getElementById('maxTokens').value),
+    };
+
+    try {
+      const res = await fetch(`${API()}/summarize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      setStatus('done', `Done in ${data.total_elapsed_sec}s — ${data.transcript.word_count.toLocaleString()} words transcribed`);
+
+      let html = renderTranscript(data.transcript);
+      html += '<div class="results-grid">';
+      data.results.forEach((r, i) => { html += renderCard(r, i * 80); });
+      html += '</div>';
+      html += `<div class="total-bar">Total processing time: <strong style="color:var(--accent)">${data.total_elapsed_sec}s</strong></div>`;
+
+      content.innerHTML = html;
+
+    } catch (e) {
+      setStatus('error', 'Error — see details below');
+      content.innerHTML = `
+        <div class="error-box">
+          <strong>// Error</strong>
+          ${escHtml(String(e.message))}
+          <br><br>
+          <span style="color:var(--sub);font-size:.75rem">Make sure the backend is running at ${API()} — start it with: <code>python main.py</code></span>
+        </div>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Analyze →';
+    }
+  }
+
+  // Allow Enter key on URL input
+  document.getElementById('urlInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') runSummarize();
+  });
+</script>
+</body>
+</html>

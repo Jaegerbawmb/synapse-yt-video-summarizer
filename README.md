@@ -1,0 +1,267 @@
+# SYNAPSE — YouTube Video Summarizer
+
+> **TextRank · T5 · BART · PEGASUS**  
+> Four-model summarization pipeline with free, local audio transcription via OpenAI Whisper.
+
+---
+
+## Architecture
+
+```
+YouTube URL
+    │
+    ▼
+┌───────────────────────────────────────────┐
+│  TRANSCRIPT EXTRACTION                     │
+│                                           │
+│  PRIMARY   → yt-dlp (audio download)     │
+│              → Whisper (local STT, free) │
+│                                           │
+│  FALLBACK  → youtube-transcript-api      │
+│              (auto/manual captions)       │
+└───────────────────┬───────────────────────┘
+                    │
+                    ▼
+        Full transcript text
+                    │
+          ┌─────────┴──────────┐
+          │                    │
+    EXTRACTIVE           ABSTRACTIVE
+          │                    │
+    ┌─────▼─────┐    ┌────────┬┴───────┬────────┐
+    │ TextRank  │    │   T5   │  BART  │PEGASUS │
+    │  (sumy)   │    │(small) │(large) │ (xsum) │
+    └─────┬─────┘    └────────┴───┬────┴────────┘
+          │                       │
+          └──────────┬────────────┘
+                     │
+                ┌────▼────┐
+                │ FastAPI  │
+                │  /summarize
+                └────┬────┘
+                     │
+              ┌──────▼──────┐
+              │  frontend/   │
+              │  index.html  │
+              └─────────────┘
+```
+
+---
+
+## Models
+
+| Model | Type | Description |
+|-------|------|-------------|
+| **TextRank** | Extractive | Graph-based ranking of sentence centrality. Selects the N most important original sentences. Zero hallucination. |
+| **T5-small** | Abstractive | Google's text-to-text transformer. Generates new text using a `summarize:` task prefix. |
+| **BART-large-cnn** | Abstractive | Facebook's denoising autoencoder, fine-tuned on CNN/DailyMail. Best for news-style, fluent summaries. |
+| **PEGASUS-xsum** | Abstractive | Google's gap-sentence generation model. Produces very concise, high-abstraction summaries. |
+
+---
+
+## Transcript Pipeline
+
+```
+                    ┌─ WHISPER (primary) ────────────────────┐
+yt-dlp downloads ──▶│  • Runs locally, no API key needed     │
+audio as .mp3       │  • Supports 99 languages               │
+                    │  • Model sizes: tiny/base/small/medium  │
+                    └────────────────────────────────────────┘
+                              │ fails / empty?
+                              ▼
+                    ┌─ YouTube Transcript API (fallback) ─────┐
+                    │  • Fetches auto-generated captions       │
+                    │  • Falls back to manual transcripts      │
+                    │  • Works for most public videos          │
+                    └─────────────────────────────────────────┘
+```
+
+---
+
+## Project Structure
+
+```
+yt_summarizer/
+├── backend/
+│   ├── main.py          ← FastAPI app, routes, schemas
+│   ├── transcript.py    ← Whisper + YouTube caption extraction
+│   ├── summarizer.py    ← TextRank, T5, BART, PEGASUS
+│   ├── requirements.txt
+│   └── tests.py         ← Unit + integration tests
+├── frontend/
+│   └── index.html       ← Standalone UI (no build step)
+└── start.sh             ← One-command launcher
+```
+
+---
+
+## Quickstart
+
+### 1. System Dependencies
+
+```bash
+# Ubuntu / Debian
+sudo apt install ffmpeg python3 python3-pip
+
+# macOS
+brew install ffmpeg
+
+# Windows
+# → https://ffmpeg.org/download.html (add to PATH)
+```
+
+### 2. Install & Run
+
+```bash
+git clone <repo>
+cd yt_summarizer
+
+# Option A: one-liner
+chmod +x start.sh && ./start.sh
+
+# Option B: manual
+cd backend
+pip install -r requirements.txt
+python -m nltk.downloader punkt punkt_tab stopwords
+uvicorn main:app --reload
+```
+
+### 3. Open the UI
+
+```
+Open frontend/index.html in your browser
+```
+
+Or use the API directly:
+
+```bash
+curl -X POST http://localhost:8000/summarize \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "models": ["textrank", "t5", "bart", "pegasus"],
+    "extractive_sentences": 5,
+    "abstractive_max_tokens": 250
+  }'
+```
+
+---
+
+## API Reference
+
+### `POST /summarize`
+
+**Request:**
+```json
+{
+  "url": "https://www.youtube.com/watch?v=...",
+  "models": ["textrank", "t5", "bart", "pegasus"],
+  "extractive_sentences": 5,
+  "abstractive_max_tokens": 300
+}
+```
+
+**Response:**
+```json
+{
+  "video_id": "dQw4w9WgXcQ",
+  "transcript": {
+    "source": "whisper",
+    "language": "en",
+    "word_count": 1423,
+    "char_count": 8201,
+    "snippet": "Never gonna give you up…"
+  },
+  "results": [
+    {
+      "model": "textrank",
+      "summary": "Selected key sentences from the video…",
+      "elapsed_sec": 0.4
+    },
+    {
+      "model": "t5",
+      "summary": "T5 generated abstract…",
+      "elapsed_sec": 12.3
+    }
+  ],
+  "total_elapsed_sec": 47.2
+}
+```
+
+### `GET /health`
+Returns `{"status": "ok"}`.
+
+### `GET /models`
+Returns descriptions of all available models.
+
+### `GET /docs`
+Interactive Swagger UI (auto-generated by FastAPI).
+
+---
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WHISPER_MODEL` | `base` | Whisper model size: `tiny` / `base` / `small` / `medium` / `large` |
+| `PORT` | `8000` | API server port |
+| `HOST` | `0.0.0.0` | API server host |
+| `PREWARM_MODELS` | `0` | Set to `1` to pre-load HuggingFace models on startup |
+| `YT_TEST_URL` | — | YouTube URL for live integration tests |
+
+### Whisper Model Trade-offs
+
+| Size | VRAM | Relative Speed | WER |
+|------|------|----------------|-----|
+| tiny | ~1 GB | ~10× | ~13% |
+| base | ~1 GB | ~7×  | ~9%  |
+| small | ~2 GB | ~4× | ~6%  |
+| medium | ~5 GB | ~2× | ~5% |
+| large | ~10 GB | 1×  | ~4% |
+
+---
+
+## Running Tests
+
+```bash
+cd backend
+
+# Offline tests (no internet needed)
+python tests.py -v
+
+# With live YouTube integration test
+YT_TEST_URL="https://youtu.be/dQw4w9WgXcQ" python tests.py -v
+```
+
+---
+
+## Performance Notes
+
+- **First request is slow** — HuggingFace models are lazy-loaded (~30–60s for BART).  
+  Use `PREWARM_MODELS=1` to front-load that on server start.
+- **Subsequent requests are fast** — models stay in memory.
+- **GPU** — If CUDA is available, install `torch` with CUDA support. Whisper and HF pipelines auto-detect GPU.
+- **Long videos** — Text is chunked automatically. A 1-hour lecture (~8k words) will run two summarization passes per model.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Backend framework | FastAPI + Uvicorn |
+| Audio download | yt-dlp |
+| Speech-to-text | OpenAI Whisper (local) |
+| Caption fallback | youtube-transcript-api |
+| Extractive NLP | sumy (TextRank) + NLTK |
+| Abstractive NLP | HuggingFace Transformers |
+| T5 | `google-t5/t5-small` |
+| BART | `facebook/bart-large-cnn` |
+| PEGASUS | `google/pegasus-xsum` |
+| Frontend | Vanilla HTML/CSS/JS |
+
+---
+
+## License
+
+MIT
