@@ -2,6 +2,7 @@
 
 > **TextRank · T5 · BART · PEGASUS**  
 > Four-model summarization pipeline with free, local audio transcription via OpenAI Whisper.
+<img width="1513" height="780" alt="image" src="https://github.com/user-attachments/assets/ffbebc19-501c-4210-81fb-e4ab5e133b77" />
 
 ---
 
